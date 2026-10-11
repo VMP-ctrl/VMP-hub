@@ -1,0 +1,660 @@
+-- =========================================================================
+-- [ VMP HUB — Flick Edition ]
+-- =========================================================================
+
+print("[VMP] Chargement...")
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui          = game:GetService("CoreGui")
+local Lighting         = game:GetService("Lighting")
+local VirtualUser      = game:GetService("VirtualUser")
+
+local LP     = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- Détection Flick
+local IS_FLICK = false
+pcall(function()
+    local name = game.Name:lower()
+    if name:find("flick") then IS_FLICK = true end
+end)
+
+print("[VMP] Flick détecté : " .. tostring(IS_FLICK))
+
+-- =========================================================================
+-- [ CONFIG ]
+-- =========================================================================
+local C = {
+    -- ESP
+    ESPEnabled      = true,
+    ESPTeamCheck    = true,
+    ESPName         = true,
+    ESPHealth       = true,
+    ESPDistance     = true,
+    ESPColor        = Color3.fromRGB(255, 100, 100),
+    -- Aimbot
+    AimbotEnabled   = false,
+    AimbotMode      = "Toujours",
+    AimbotKey       = Enum.UserInputType.MouseButton2,
+    AimbotFOV       = 120,
+    AimbotSmooth    = 0.3,
+    AimbotHitbox    = "Head",
+    AimbotTeamCheck = true,
+    AimbotVisible   = true,
+    AimbotMaxDist   = 800,
+    AimbotPrediction= 0.05,
+    -- Triggerbot
+    TriggerbotEnabled = false,
+    TriggerbotDelay   = 0.05,
+    TriggerbotTeamCheck = true,
+    -- Movement
+    WalkSpeed       = 16,
+    SpeedEnabled    = false,
+    JumpPower       = 50,
+    JumpEnabled     = false,
+    InfiniteJump    = false,
+    Noclip          = false,
+    -- Visuals
+    FOVCircle       = true,
+    FOVCircleColor  = Color3.fromRGB(140, 90, 255),
+    Fullbright      = false,
+    -- Misc
+    AntiAFK         = true,
+}
+
+-- =========================================================================
+-- [ UTILS ]
+-- =========================================================================
+local function getHRP(plr)
+    local c = (plr or LP).Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function getHum(plr)
+    local c = (plr or LP).Character
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function dist(a, b)
+    if not a or not b then return math.huge end
+    return (a.Position - b.Position).Magnitude
+end
+local function isTeam(plr)
+    if not C.ESPTeamCheck then return false end
+    if LP.Team == nil or plr.Team == nil then return false end
+    return LP.Team == plr.Team
+end
+local function visible(targetPart)
+    if not C.AimbotVisible then return true end
+    if not targetPart then return false end
+    local origin = Camera.CFrame.Position
+    local dir = targetPart.Position - origin
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { LP.Character, Camera }
+    local result = workspace:Raycast(origin, dir, params)
+    if not result then return true end
+    return result.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+-- =========================================================================
+-- [ ESP ]
+-- =========================================================================
+local espFolder = nil
+local espCache = {}
+
+local function clearESP()
+    for _, obj in pairs(espCache) do pcall(function() obj:Destroy() end) end
+    espCache = {}
+end
+
+local function buildESP()
+    clearESP()
+    if not C.ESPEnabled then return end
+    if not espFolder or not espFolder.Parent then
+        espFolder = Instance.new("Folder")
+        espFolder.Name = "VMP_ESP"
+        espFolder.Parent = (gethui and gethui()) or CoreGui
+    end
+    local hrp = getHRP(LP)
+    if not hrp then return end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and not isTeam(plr) then
+            local char = plr.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if head and hum and hum.Health > 0 then
+                    local d = dist(hrp, head)
+
+                    local hl = Instance.new("Highlight")
+                    hl.Adornee = char
+                    hl.FillColor = C.ESPColor
+                    hl.OutlineColor = C.ESPColor
+                    hl.FillTransparency = 0.7
+                    hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = espFolder
+                    table.insert(espCache, hl)
+
+                    local bg = Instance.new("BillboardGui")
+                    bg.Adornee = head
+                    bg.Size = UDim2.new(0, 200, 0, 60)
+                    bg.StudsOffset = Vector3.new(0, 3, 0)
+                    bg.AlwaysOnTop = true
+                    bg.Parent = espFolder
+
+                    local y = 0
+                    if C.ESPName then
+                        local n = Instance.new("TextLabel")
+                        n.Size = UDim2.new(1, 0, 0, 16)
+                        n.Position = UDim2.new(0, 0, 0, y)
+                        n.BackgroundTransparency = 1
+                        n.Text = plr.Name
+                        n.TextColor3 = Color3.new(1,1,1)
+                        n.Font = Enum.Font.GothamBold
+                        n.TextSize = 13
+                        n.TextStrokeTransparency = 0.4
+                        n.Parent = bg
+                        y = y + 16
+                    end
+                    if C.ESPHealth and hum then
+                        local hpFrac = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                        local hpBg = Instance.new("Frame")
+                        hpBg.Size = UDim2.new(0, 100, 0, 4)
+                        hpBg.Position = UDim2.new(0.5, -50, 0, y)
+                        hpBg.BackgroundColor3 = Color3.new(0, 0, 0)
+                        hpBg.BorderSizePixel = 0
+                        hpBg.Parent = bg
+                        local hpFill = Instance.new("Frame")
+                        hpFill.Size = UDim2.new(hpFrac, 0, 1, 0)
+                        hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+                        hpFill.BorderSizePixel = 0
+                        hpFill.Parent = hpBg
+                        y = y + 8
+                    end
+                    if C.ESPDistance then
+                        local dl = Instance.new("TextLabel")
+                        dl.Size = UDim2.new(1, 0, 0, 14)
+                        dl.Position = UDim2.new(0, 0, 0, y)
+                        dl.BackgroundTransparency = 1
+                        dl.Text = string.format("%.0fm", d)
+                        dl.TextColor3 = Color3.fromRGB(200, 200, 200)
+                        dl.Font = Enum.Font.Gotham
+                        dl.TextSize = 11
+                        dl.TextStrokeTransparency = 0.5
+                        dl.Parent = bg
+                    end
+
+                    table.insert(espCache, bg)
+                end
+            end
+        end
+    end
+end
+
+-- =========================================================================
+-- [ AIMBOT ]
+-- =========================================================================
+local holdingKey = false
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == C.AimbotKey then holdingKey = true end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == C.AimbotKey then holdingKey = false end
+end)
+
+local function shouldAim()
+    if not C.AimbotEnabled then return false end
+    if C.AimbotMode == "Toujours" then return true end
+    if MOBILE then return true end
+    return holdingKey
+end
+
+local function findBestTarget()
+    local hrp = getHRP(LP)
+    if not hrp then return nil end
+    local best, bestScore = nil, math.huge
+    local center = Camera.ViewportSize / 2
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and not (C.AimbotTeamCheck and isTeam(plr)) then
+            local char = plr.Character
+            if char then
+                local part
+                if C.AimbotHitbox == "Head" then
+                    part = char:FindFirstChild("Head")
+                elseif C.AimbotHitbox == "Torso" then
+                    part = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+                else
+                    part = char:FindFirstChild("HumanoidRootPart")
+                end
+                if part then
+                    local d = dist(hrp, part)
+                    if d <= C.AimbotMaxDist then
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                        if onScreen then
+                            local dx = screenPos.X - center.X
+                            local dy = screenPos.Y - center.Y
+                            local fovDist = math.sqrt(dx*dx + dy*dy)
+                            if fovDist <= C.AimbotFOV then
+                                if visible(part) and fovDist < bestScore then
+                                    bestScore = fovDist
+                                    best = { plr = plr, part = part }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- =========================================================================
+-- [ FOV CIRCLE ]
+-- =========================================================================
+local fovCircle = nil
+pcall(function()
+    fovCircle = Drawing.new("Circle")
+    fovCircle.NumSides = 64
+    fovCircle.Thickness = 1.5
+    fovCircle.Filled = false
+    fovCircle.Visible = false
+end)
+
+-- =========================================================================
+-- [ SPEED / JUMP / NOCLIP ]
+-- =========================================================================
+local function applySpeed()
+    local h = getHum(LP)
+    if h then h.WalkSpeed = C.SpeedEnabled and C.WalkSpeed or 16 end
+end
+local function applyJump()
+    local h = getHum(LP)
+    if h then
+        if h.UseJumpPower then
+            h.JumpPower = C.JumpEnabled and C.JumpPower or 50
+        else
+            h.JumpHeight = C.JumpEnabled and (C.JumpPower/7.14) or 7.2
+        end
+    end
+end
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    applySpeed()
+    applyJump()
+end)
+
+RunService.Stepped:Connect(function()
+    if not C.Noclip then return end
+    local char = LP.Character
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.CanCollide = false
+            p.CanQuery = false
+            p.CanTouch = false
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not C.InfiniteJump then return end
+    local h = getHum(LP)
+    if not h then return end
+    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+        h:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+if MOBILE then
+    UserInputService.JumpRequest:Connect(function()
+        if C.InfiniteJump then
+            local h = getHum(LP)
+            if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end
+    end)
+end
+
+-- =========================================================================
+-- [ FULLBRIGHT ]
+-- =========================================================================
+local function setFullbright(on)
+    if on then
+        Lighting.Ambient = Color3.new(1,1,1)
+        Lighting.OutdoorAmbient = Color3.new(1,1,1)
+        Lighting.Brightness = 3
+        Lighting.ClockTime = 12
+    else
+        Lighting.Ambient = Color3.fromRGB(70,70,70)
+        Lighting.OutdoorAmbient = Color3.fromRGB(128,128,128)
+        Lighting.Brightness = 1
+    end
+end
+
+-- =========================================================================
+-- [ LOOPS ]
+-- =========================================================================
+task.spawn(function()
+    while true do
+        pcall(buildESP)
+        task.wait(0.5)
+    end
+end)
+
+local lastTrigger = 0
+RunService.RenderStepped:Connect(function()
+    -- Aimbot
+    if shouldAim() then
+        local target = findBestTarget()
+        if target and target.part then
+            local origin = Camera.CFrame.Position
+            local targetPos = target.part.Position
+            if C.AimbotPrediction > 0 then
+                local thrp = getHRP(target.plr)
+                if thrp then
+                    targetPos = targetPos + (thrp.AssemblyLinearVelocity * C.AimbotPred0iction)
+                end
+            end
+            local goal =),
+ CFrame.new(origin, target   Pos)
+            if C.AimbotSmooth > 0 Automatic then
+                Camera.CFrame = Camera.CFrame:LCanvaserp(goal, 1 - C.AimbotSizeSmooth)
+            else
+                Camera.CFrame = goal
+            end
+        end
+    end
+
+    -- Triggerbot
+    if C.TriggerbotEnabled then
+        local now = tick()
+        if now - lastTrigger > C.TriggerbotDelay then
+            local hrp = getHRP(LP)
+            if hrp then
+                local origin = Camera.CFrame.Position
+                local dir = Camera.CFrame.LookVector * 500
+                local params = RaycastParams.new()
+                params.FilterType = Enum.RaycastFilterType.Exclude
+                params.FilterDescendantsInstances = { LP.Character, Camera }
+                local result = workspace:Raycast(origin, dir, params)
+                if result then
+                    local char = result.Instance:FindFirstAncestorOfClass("Model")
+                    if char then
+                        local plr = Players:GetPlayerFromCharacter(char)
+                        if plr and plr ~= LP then
+                            if not (C.TriggerbotTeamCheck and isTeam(plr)) then
+                                lastTrigger = now
+                                pcall(function()
+                                    VirtualUser:CaptureController()
+                                    VirtualUser:ClickButton1(Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2))
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- FOV circle
+    if fovCircle then
+        pcall(function()
+            fovCircle.Position = Camera.ViewportSize / 2
+            fovCircle.Radius = C.AimbotFOV
+            fovCircle.Color = C.FOVCircleColor
+            fovCircle.Visible = C.FOVCircle and C.AimbotEnabled
+        end)
+    end
+end)
+
+LP.Idled:Connect(function()
+    if C.AntiAFK then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
+
+-- =========================================================================
+-- [ UI ]
+-- =========================================================================
+local Theme = {
+    Bg      = Color3.fromRGB(14, 14, 20),
+    Panel   = Color3.fromRGB(20, 20, 28),
+    Item    = Color3.fromRGB(30, 30, 40),
+    Accent  = Color3.fromRGB(140, 90, 255),
+    Text    = Color3.fromRGB(240, 240, 250),
+    SubText = Color3.fromRGB(150, 150, 170),
+    On      = Color3.fromRGB(140, 90, 255),
+    Off     = Color3.fromRGB(45, 45, 58),
+}
+
+local function make(instance, props, parent)
+    local obj = Instance.new(instance)
+    for k, v in pairs(props or {}) do obj[k] = v end
+    obj.Parent = parent
+    return obj
+end
+
+local parent = (gethui and gethui()) or CoreGui
+local sg = make("ScreenGui", {
+    Name = "Chat",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = MOBILE,
+    DisplayOrder = 999,
+}, parent)
+
+local BtnSize = MOBILE and 64 or 56
+local Btn = make("TextButton", {
+    Size = UDim2.new(0, BtnSize, 0, BtnSize),
+    Position = UDim2.new(0, 20, 0.35, -BtnSize/2),
+    BackgroundColor3 = Theme.Accent,
+    Text = "V",
+    TextColor3 = Color3.new(1,1,1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 26,
+    AutoButtonColor = false,
+}, sg)
+make("UICorner", { CornerRadius = UDim.new(1,0) }, Btn)
+
+local pan = make("Frame", {
+    Size = UDim2.new(0, 280, 0, 540),
+    Position = UDim2.new(0, 20, 0.35, BtnSize/2 + 10),
+    BackgroundColor3 = Theme.Bg,
+    BorderSizePixel = 0,
+    Visible = false,
+}, sg)
+make("UICorner", { CornerRadius = UDim.new(0, 12) }, pan)
+make("UIStroke", { Color = Theme.Accent, Thickness = 1.5 }, pan)
+
+local header = make("TextButton", {
+    Size = UDim2.new(1, 0, 0, 44),
+    BackgroundColor3 = Theme.Panel,
+    Text = "VMP HUB",
+    TextColor3 = Theme.Accent,
+    Font = Enum.Font.GothamBold,
+    TextSize = 15,
+    AutoButtonColor = false,
+}, pan)
+make("UICorner", { CornerRadius = UDim.new(0, 12) }, header)
+
+local content = make("ScrollingFrame", {
+    Size = UDim2.new(1, -20, 1, -60),
+    Position = UDim2.new(0, 10, 0, 50),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Accent,
+    CanvasSize = UDim2.new(0,0,0, = Enum.AutomaticSize.Y,
+}, pan)
+make("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, content)
+
+local function newSection(text)
+    return make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        Text = text:upper(),
+        TextColor3 = Theme.SubText,
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, content)
+end
+
+local function newToggle(label, key, cb)
+    local row = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 42),
+        BackgroundColor3 = Theme.Item,
+        BorderSizePixel = 0,
+    }, content)
+    make("UICorner", { CornerRadius = UDim.new(0, 8) }, row)
+    make("TextLabel", {
+        Size = UDim2.new(1, -70, 1, 0),
+        Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1,
+        Text = label,
+        TextColor3 = Theme.Text,
+        Font = Enum.Font.Gotham,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, row)
+    local track = make("Frame", {
+        Size = UDim2.new(0, 44, 0, 24),
+        Position = UDim2.new(1, -54, 0.5, -12),
+        BackgroundColor3 = C[key] and Theme.On or Theme.Off,
+        BorderSizePixel = 0,
+    }, row)
+    make("UICorner", { CornerRadius = UDim.new(1,0) }, track)
+    local knob = make("Frame", {
+        Size = UDim2.new(0, 18, 0, 18),
+        Position = C[key] and UDim2.new(1, -20, 0.5, -9) or UDim2.new(0, 3, 0.5, -9),
+        BackgroundColor3 = Color3.new(1,1,1),
+        BorderSizePixel = 0,
+    }, track)
+    make("UICorner", { CornerRadius = UDim.new(1,0) }, knob)
+    local btn = make("TextButton", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+    }, row)
+    btn.MouseButton1Click:Connect(function()
+        C[key] = not C[key]
+        track.BackgroundColor3 = C[key] and Theme.On or Theme.Off
+        knob.Position = C[key] and UDim2.new(1, -20, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        if cb then cb(C[key]) end
+    end)
+end
+
+local function newButton(label, cb)
+    local btn = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 38),
+        BackgroundColor3 = Theme.Item,
+        Text = label,
+        TextColor3 = Theme.Text,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 12,
+        AutoButtonColor = false,
+    }, content)
+    make("UICorner", { CornerRadius = UDim.new(0, 8) }, btn)
+    if cb then btn.MouseButton1Click:Connect(cb) end
+    return btn
+end
+
+newSection("aimbot")
+newToggle("Activer Aimbot", "AimbotEnabled")
+newToggle("Vérif. équipe", "AimbotTeamCheck")
+newToggle("Vérif. visibilité", "AimbotVisible")
+local modeBtn = newButton("Mode : " .. C.AimbotMode, function() end)
+modeBtn.MouseButton1Click:Connect(function()
+    C.AimbotMode = (C.AimbotMode == "Toujours") and "Appui long" or "Toujours"
+    modeBtn.Text = "Mode : " .. C.AimbotMode
+end)
+local hitboxBtn = newButton("Zone : " .. C.AimbotHitbox, function() end)
+hitboxBtn.MouseButton1Click:Connect(function()
+    local opts = {"Head", "Torso", "HumanoidRootPart"}
+    local idx = 1
+    for i, o in ipairs(opts) do
+        if o == C.AimbotHitbox then idx = i break end
+    end
+    C.AimbotHitbox = opts[(idx % #opts) + 1]
+    hitboxBtn.Text = "Zone : " .. C.AimbotHitbox
+end)
+
+newSection("triggerbot")
+newToggle("Activer Triggerbot", "TriggerbotEnabled")
+newToggle("Vérif. équipe (trigger)", "TriggerbotTeamCheck")
+
+newSection("esp")
+newToggle("Activer ESP", "ESPEnabled")
+newToggle("Vérif. équipe", "ESPTeamCheck")
+newToggle("Noms", "ESPName")
+newToggle("Vie", "ESPHealth")
+newToggle("Distance", "ESPDistance")
+
+newSection("mouvement")
+newToggle("Vitesse", "SpeedEnabled", function() applySpeed() end)
+newToggle("Saut boosté", "JumpEnabled", function() applyJump() end)
+newToggle("Saut infini", "InfiniteJump")
+newToggle("Noclip", "Noclip")
+
+newSection("affichage")
+newToggle("Cercle FOV", "FOVCircle")
+newToggle("Plein jour", "Fullbright", function(v) setFullbright(v) end)
+
+newSection("divers")
+newToggle("Anti-AFK", "AntiAFK")
+
+-- Drag
+local dragging, dragStart, startPos
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = pan.Position
+    end
+end)
+header.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        local d = input.Position - dragStart
+        pan.Position = UDim2.new(0, startPos.X.Offset + d.X, 0, startPos.Y.Offset + d.Y)
+    end
+end)
+
+local bdrag, bstart, bstartPos
+Btn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        bdrag = true
+        bstart = input.Position
+        bstartPos = Btn.Position
+    end
+end)
+Btn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        bdrag = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if not bdrag then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        local d = input.Position - bstart
+        Btn.Position = UDim2.new(0, bstartPos.X.Offset + d.X, 0, bstartPos.Y.Offset + d.Y)
+    end
+end)
+
+Btn.MouseButton1Click:Connect(function()
+    pan.Visible = not pan.Visible
+end)
+
+print("[VMP] VMP HUB chargé pour Flick")
